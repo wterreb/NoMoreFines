@@ -37,7 +37,7 @@
 
 // Set GPSECHO to 'false' to turn off echoing the GPS data to the Serial console
 // Set to 'true' if you want to debug and listen to the raw GPS sentences. 
-#define GPSECHO  true
+#define GPSECHO  false
 
 
 Adafruit_PCD8544 display = Adafruit_PCD8544(LCD_CLK, LCD_DATA, LCD_DATCMD, LCD_CE ,LCD_RESET);
@@ -50,8 +50,8 @@ char gpsSpeed = 0;
 char gpsFixQual = 0;
 char prev_seconds = 0;
 char buffer[20];
-double tripDistance = 123.45;
-double odoDistance = 56789.43;
+double tripDistance = 0;
+long odoDistance = 0;
 char contrast = 30;
 int mode = MODE_DEFAULT;
 int speedlimit[6];
@@ -68,12 +68,12 @@ const unsigned int TIMEZONE = +12;
 
 
 void setup()   {
-  Serial.begin(115200);
-  display.begin();
-  display.setContrast(contrast);
-  display.clearDisplay();
-  display.display();
-  display.clearDisplay();
+   Serial.begin(115200);
+   display.begin();
+   display.setContrast(contrast);
+   display.clearDisplay();
+   display.display();
+   display.clearDisplay();
 
    pinMode(BUTTON1, INPUT);
    pinMode(BUTTON2, INPUT);
@@ -81,15 +81,16 @@ void setup()   {
    pinMode(BUTTON4, INPUT);
    pinMode(BUZZER, OUTPUT);
 
-  // 9600 NMEA is the default baud rate for Adafruit MTK GPS's- some use 4800
-  GPS.begin(9600);
+   // 9600 NMEA is the default baud rate for Adafruit MTK GPS's- some use 4800
+   GPS.begin(9600);
 
-  EEPROMLoad();
+   EEPROMLoad();
+  //Serial.print("Odo = "); Serial.println(odoDistance); 
 
-
-   if (contrast == -1)
+   if ( (contrast < 0) || (odoDistance < (long)0) )
    {
       contrast = 30;
+      odoDistance = 0;
       speedlimit[0] =  55;
       speedlimit[1] =  65;
       speedlimit[2] = 105;
@@ -97,7 +98,7 @@ void setup()   {
       speedlimit[4] = 120;
       speedlimit[5] = 200; 
    }
-  
+
 }
 
 void loop() {
@@ -242,7 +243,6 @@ void CheckOverspeeding() {
           overspeeding = true;
       }
   }
-
 }
 
 void ShowOptionsMenu() {
@@ -271,12 +271,10 @@ void ShowSetOdoMenu() {
     display.print("< UP");
     display.setCursor(0, 36);
     display.print("< DOWN");
-    display.setCursor(display.width()-37, 12);
-    display.print("Exit >");
     display.setCursor(display.width()-37, 36);
     display.print("Save >");
     display.setCursor(24, 24);
-    display.print("1234567");
+    display.print(odoDistance);
     display.display();
     delay(200);
 }
@@ -322,66 +320,96 @@ void  ShowSpeedLimitMenu() {
 }
 
 void CheckButtonPress() {
+     bool saveAndExit = false;
+     static bool but2Pressed = false;
      bool but1 = !digitalRead(BUTTON1);
      bool but2 = !digitalRead(BUTTON2);
      bool but3 = !digitalRead(BUTTON3);
      bool but4 = !digitalRead(BUTTON4);
-     
+     int butPressed = 0;
+     static int lastbut = 5;
+     static int incrVal = 0;
+
+    if ( but1 ) butPressed = 1;
+    if ( but2 ) butPressed = 2;
+    if ( but3 ) butPressed = 3;
+    if ( but4 ) butPressed = 4;
+
      switch (mode)  {
         case MODE_DEFAULT:
-           if ( but3  && (contrast < 60) ) {
-                contrast += 1;
-                display.setContrast(contrast);
-                delay(200);
+           switch (butPressed) {   
+                case 3: if (contrast < 60) {
+                            contrast += 1;
+                            display.setContrast(contrast);
+                             delay(200);
+                        }
+                        break;
+                case 4: if (contrast > 0) {
+                           contrast -= 1;   
+                           display.setContrast(contrast);
+                           delay(200);
+                        }
+                        break;
+           }   
+           if (but1 && but2)  {
+              mode = OPTIONS_MENU; 
            }
-           if ( but4  && (contrast > 0) ) {
-              contrast -= 1;   
-              display.setContrast(contrast);
-              delay(200);
+           if (!but1 && but2)  {
+             if ( (lastbut == 2) && (but2Pressed == false) ) {
+                 but2Pressed = true;  
+                 tripDistance = 0;
+             }
            }
-           if (but1 && but2) 
-              mode = OPTIONS_MENU;
-           break;
+           else {
+              but2Pressed = false;
+           }
+           break;        
         case OPTIONS_MENU:
            delay(200);
-           if ( but1 ) {
-              mode = SPEED_MENU;
-           }
-           if ( but3 ) {
-              mode = ODO_MENU;
-           }
-           if ( but4 ) {
-              mode = MODE_DEFAULT;
+           switch (butPressed) {
+             case 1: mode = SPEED_MENU; break;
+             case 3: mode = ODO_MENU; break;
+             case 4: mode = MODE_DEFAULT; break;
+             default : break;
            }
            break;
         case ODO_MENU:
-             if (but3) {
-                mode = MODE_DEFAULT;
+             if (lastbut == butPressed) {
+                incrVal = incrVal*2+1;
              }
-             if (but4) {   
-                EEPROMSave();  
-                mode = MODE_DEFAULT;
-             }   
-           break;
+             else {
+                incrVal = 0;
+             }
+              switch (butPressed) {
+                 case 1: odoDistance += incrVal; break;
+                 case 2: if (odoDistance >= incrVal) odoDistance -= incrVal; break;
+                 case 4:  saveAndExit = true ; break;
+              }
+             delay(100);
+             break;
            
         case SPEED_MENU:
-           digitalWrite(BUZZER, false);  // buzzer off
-           if (but4) {   
-               EEPROMSave();
-               mode = MODE_DEFAULT;   
+           switch (butPressed) {
+             case 1: if  (speedlimit[select] < 200) speedlimit[select] += 1; break;
+             case 2: if  (speedlimit[select] > 0) speedlimit[select] -= 1; break;
+             case 3: if (select < 6) select += 1;
+                     if (select == 6) select = 0;
+                     break;
+             case 4:  saveAndExit = true ; break;
            }
-           if (but3) {
-             if (select < 6)
-                select += 1;
-             if (select == 6)
-                select = 0;
-           }
-           if ( (speedlimit[select] < 200) && but1 && !but2 )
-              speedlimit[select] += 1;
-           if ( (speedlimit[select] > 0) && but2 && !but1 )
-              speedlimit[select] -= 1;
            break;
-     }     
+     }  
+     lastbut = butPressed;
+     if (butPressed > 0) {
+        digitalWrite(BUZZER, true); 
+        delay(50);
+     }
+     digitalWrite(BUZZER, false); 
+     if (saveAndExit) {
+        lastbut = 5;
+        EEPROMSave(); 
+        mode = MODE_DEFAULT;  
+     } 
 }
 
 void EEPROMLoad() {
@@ -391,6 +419,8 @@ void EEPROMLoad() {
       addr += i*2;
       speedlimit[i] = EEPROMReadInt(addr);
    }
+   addr += 2;
+   odoDistance = EEPROMReadlong( addr );
 }
 
 void EEPROMSave() {
@@ -400,6 +430,8 @@ void EEPROMSave() {
       addr += i*2;
       EEPROMUpdateInt(addr, speedlimit[i]);
    }
+   addr += 2;
+   EEPROMWritelong( addr, odoDistance );
 }
 
 //This function will write a 2 byte integer to the eeprom at the specified address and address + 1
@@ -407,8 +439,8 @@ void EEPROMUpdateInt(int p_address, int p_value) {
      byte lowByte = ((p_value >> 0) & 0xFF);
      byte highByte = ((p_value >> 8) & 0xFF);
 
-     EEPROM.write(p_address, lowByte);
-     EEPROM.write(p_address + 1, highByte);
+     EEPROM.update(p_address, lowByte);
+     EEPROM.update(p_address + 1, highByte);
 }
 
 //This function will read a 2 byte integer from the eeprom at the specified address and address + 1
@@ -419,5 +451,33 @@ unsigned int EEPROMReadInt(int p_address) {
      return ((lowByte << 0) & 0xFF) + ((highByte << 8) & 0xFF00);
 }
 
+//This function will write a 4 byte (32bit) long to the eeprom at
+//the specified address to address + 3.
+void EEPROMWritelong(int address, long value) {
+      //Decomposition from a long to 4 bytes by using bitshift.
+      //One = Most significant -> Four = Least significant byte
+      byte four = (value & 0xFF);
+      byte three = ((value >> 8) & 0xFF);
+      byte two = ((value >> 16) & 0xFF);
+      byte one = ((value >> 24) & 0xFF);
+
+      //Write the 4 bytes into the eeprom memory.
+      EEPROM.update(address, four);
+      EEPROM.update(address + 1, three);
+      EEPROM.update(address + 2, two);
+      EEPROM.update(address + 3, one);
+}
+
+long EEPROMReadlong(long address) {
+      //Read the 4 bytes from the eeprom memory.
+      long four = EEPROM.read(address);
+      long three = EEPROM.read(address + 1);
+      long two = EEPROM.read(address + 2);
+      long one = EEPROM.read(address + 3);
+
+      //Return the recomposed long by using bitshift.
+      return ((four << 0) & 0xFF) + ((three << 8) & 0xFFFF) + ((two << 16) & 0xFFFFFF) + ((one << 24) & 0xFFFFFFFF);
+}
+      
 
 
