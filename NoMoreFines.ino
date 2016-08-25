@@ -39,7 +39,6 @@
 // Set to 'true' if you want to debug and listen to the raw GPS sentences. 
 #define GPSECHO  false
 
-
 Adafruit_PCD8544 display = Adafruit_PCD8544(LCD_CLK, LCD_DATA, LCD_DATCMD, LCD_CE ,LCD_RESET);
 SoftwareSerial mySerial(GPS_TX, GPS_RX);
 Adafruit_GPS GPS(&mySerial);
